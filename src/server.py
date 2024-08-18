@@ -101,7 +101,7 @@ class Detections(BaseModel):
 
 class CONTENT(BaseModel):
     image: Optional[str] = None
-    detections: Optional[list[Detections]] = None
+    detections: list[Detections]
 
 
 @NudeNetCensor.post("/detect", response_model=CONTENT)
@@ -172,7 +172,7 @@ async def detect_file(
         result_img.save(buffer, format='PNG')
         buffer.seek(0)
 
-        return StreamingResponse(buffer, media_type="image/png", headers={"Content-Length": str(buffer.getbuffer().nbytes)})
+        return StreamingResponse(buffer, media_type="image/png")
     else:
         return JSONResponse(content={'warn': 'No detected'}, status_code=204)
 
@@ -181,6 +181,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NudeNetCensor server")
     parser.add_argument("--log-level", type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         default='INFO', help="Set the logging level")
+    parser.add_argument("--port", type=int, default=15000, help="Set the server port")
 
     args = parser.parse_args()
 
@@ -191,4 +192,4 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    uvicorn.run("server:NudeNetCensor", host="0.0.0.0", port=5000, reload=False, log_config=LOGGING_CONFIG, log_level=args.log_level.lower())
+    uvicorn.run("server:NudeNetCensor", host="0.0.0.0", port=args.port, reload=False, log_config=LOGGING_CONFIG, log_level=args.log_level.lower())
