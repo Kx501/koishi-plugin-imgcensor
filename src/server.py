@@ -12,6 +12,9 @@ from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
 from processing import process_image, LABELS
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 NudeNetCensor = FastAPI()
 detector = NudeDetector()
@@ -77,8 +80,8 @@ class ImageConfig(BaseModel):
 
 
 class ImageRequest(BaseModel):
-    image: Optional[str] = Field(
-        None,
+    image: str = Field(
+        ...,
         description="Base64 encoded string or URL of the image",
         examples=["http://example.com/image.jpg"],
     )
@@ -88,42 +91,63 @@ class ImageRequest(BaseModel):
     )
 
 
-@NudeNetCensor.post("/detect")
+class Detections(BaseModel):
+    __class__: str
+    score: str
+    box: tuple[int, int, int, int]
+
+
+class CONTENT(BaseModel):
+    image: Optional[str] = None
+    detections: Optional[list[Detections]] = None
+
+
+@NudeNetCensor.post("/detect", response_model=CONTENT)
 async def detect(
         request: ImageRequest,
 ):
     image = request.image
     config = request.config
+    mask_type = config.mask_type
     proxy = config.proxy
 
     if image:
         try:
             img = load_image_from_url(image, proxy) if is_url(image) else decode_image_from_base64(image)
-        except (IOError, ValueError, TypeError):
+            logging.debug("Image loaded successfully")
+        except (IOError, ValueError, TypeError) as e:
+            logging.error(f"Image loading error: {e}")
             raise HTTPException(status_code=400, detail="Invalid image format")
     else:
         raise HTTPException(status_code=400, detail="No image provided")
 
-    # Convert PIL image to numpy array for detection
-    img_array = np.array(img)
-    detections = detector.detect(img_array)
+    logging.debug("Starting detection process")
+    try:
+        img_array = np.array(img)
+        detections = detector.detect(img_array)
+        logging.debug(f"Detections found: {detections}")
 
-    # Process image if detections are found
-    if detections:
-        result_img, filtered_detections = process_image(img, detections, config)
+        if detections:
+            logging.debug("Starting image processing")
+            result_img, filtered_detections = process_image(img, detections, config)
+            logging.info(f"Filtered detections: {filtered_detections}")
 
-        if filtered_detections and config.mask_type != 'None':
             buffer = io.BytesIO()
             result_img.save(buffer, format='PNG')
+            buffer.seek(0)
             encoded_img = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            logging.debug("Image processing and encoding completed")
 
-            return JSONResponse(content={'detections': filtered_detections, 'images': [encoded_img]})
-        elif config.mask_type == 'None':
-            return JSONResponse(content={'detections': filtered_detections})
-        else:
-            return JSONResponse(content={'warn': 'No selected tags detected'}, status_code=204)
-    else:
+            if mask_type == 'None':
+                content = {'detections': filtered_detections}
+            else:
+                content = {'image': encoded_img, 'detections': filtered_detections}
+
+            return content
         return JSONResponse(content={'warn': 'No detected'}, status_code=204)
+    except Exception as e:
+        logging.error(f"Error during processing: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error processing image")
 
 
 @NudeNetCensor.post("/detect_file")
@@ -146,8 +170,8 @@ async def detect_file(
         buffer = io.BytesIO()
         result_img.save(buffer, format='PNG')
         buffer.seek(0)
-        # 返回文件流
-        return StreamingResponse(buffer, media_type="image/png")
+        # Return file stream
+        return StreamingResponse(buffer, media_type="image/png", headers={"Content-Length": str(buffer.getbuffer().nbytes)})
     else:
         return JSONResponse(content={'warn': 'No detected'}, status_code=204)
 

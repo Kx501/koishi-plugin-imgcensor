@@ -191,7 +191,7 @@ def process_image(image, detections, config=None):
         if detection['class'] not in target_labels:
             continue
 
-        print(detection)
+        # print(detection)
 
         filtered_detections.append(detection)
         box = detection['box']
@@ -210,5 +210,5 @@ def process_image(image, detections, config=None):
             image = apply_mosaic(image, box, blur_strength, mask_shape, mask_scale)
 
     # Save the processed picture
-    image.save('detection_result.png')
+    # image.save('detection_result.png')
     return image, filtered_detections
