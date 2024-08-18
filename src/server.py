@@ -100,7 +100,7 @@ class Detections(BaseModel):
 
 
 class CONTENT(BaseModel):
-    image: Optional[str] = None
+    image: Union[str, None]
     detections: list[Detections]
 
 
@@ -146,7 +146,7 @@ async def detect(
                 content = {'image': encoded_img, 'detections': filtered_detections}
 
             return content
-        return JSONResponse(content={'warn': 'No detected'}, status_code=204)
+        return JSONResponse(content={'warn': 'No detected'}, status_code=202)
     except Exception as e:
         logger.error(f"Error during processing: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error processing image")
@@ -172,9 +172,9 @@ async def detect_file(
         result_img.save(buffer, format='PNG')
         buffer.seek(0)
 
-        return StreamingResponse(buffer, media_type="image/png")
+        return StreamingResponse(buffer, media_type="image/png", headers={"Content-Length": str(buffer.getbuffer().nbytes)})
     else:
-        return JSONResponse(content={'warn': 'No detected'}, status_code=204)
+        return JSONResponse(content={'warn': 'No detected'}, status_code=202, )
 
 
 if __name__ == "__main__":

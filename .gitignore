@@ -4,6 +4,6 @@
 /src/main.py
 /src/test.*
 /src/*.png
-/src/*.build/
-/src/*.dist/
+/src/*/
 /src/*.prof
+/src/*.zip
