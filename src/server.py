@@ -1,5 +1,7 @@
+import argparse
 import base64
 import io
+import logging
 from typing import List, Optional, Literal, Dict, Union, Tuple
 
 import numpy as np
@@ -10,14 +12,14 @@ from fastapi.responses import JSONResponse
 from nudenet import NudeDetector
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
+from uvicorn.config import LOGGING_CONFIG
 
 from processing import process_image, LABELS
-import logging
-
-logging.basicConfig(level=logging.INFO)
 
 NudeNetCensor = FastAPI()
 detector = NudeDetector()
+
+logger = logging.getLogger("uvicorn")
 
 
 # Helper function to check if the string is a URL
@@ -93,7 +95,7 @@ class ImageRequest(BaseModel):
 
 class Detections(BaseModel):
     __class__: str
-    score: str
+    score: float
     box: tuple[int, int, int, int]
 
 
@@ -114,29 +116,29 @@ async def detect(
     if image:
         try:
             img = load_image_from_url(image, proxy) if is_url(image) else decode_image_from_base64(image)
-            logging.debug("Image loaded successfully")
+            logger.debug("Image loaded successfully")
         except (IOError, ValueError, TypeError) as e:
-            logging.error(f"Image loading error: {e}")
+            logger.error(f"Image loading error: {e}")
             raise HTTPException(status_code=400, detail="Invalid image format")
     else:
         raise HTTPException(status_code=400, detail="No image provided")
 
-    logging.debug("Starting detection process")
+    logger.debug("Starting detection process")
     try:
         img_array = np.array(img)
         detections = detector.detect(img_array)
-        logging.debug(f"Detections found: {detections}")
+        logger.debug(f"Detections found: {detections}")
 
         if detections:
-            logging.debug("Starting image processing")
+            logger.debug("Starting image processing")
             result_img, filtered_detections = process_image(img, detections, config)
-            logging.info(f"Filtered detections: {filtered_detections}")
+            logger.info(f"Filtered detections: {filtered_detections}")
 
             buffer = io.BytesIO()
             result_img.save(buffer, format='PNG')
             buffer.seek(0)
             encoded_img = base64.b64encode(buffer.getvalue()).decode('utf-8')
-            logging.debug("Image processing and encoding completed")
+            logger.debug("Image processing and encoding completed")
 
             if mask_type == 'None':
                 content = {'detections': filtered_detections}
@@ -146,7 +148,7 @@ async def detect(
             return content
         return JSONResponse(content={'warn': 'No detected'}, status_code=204)
     except Exception as e:
-        logging.error(f"Error during processing: {e}", exc_info=True)
+        logger.error(f"Error during processing: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error processing image")
 
 
@@ -164,19 +166,29 @@ async def detect_file(
     img_array = np.array(img)
     detections = detector.detect(img_array)
 
-    # Process image if detections are found
     if detections:
         result_img = process_image(img, detections)
         buffer = io.BytesIO()
         result_img.save(buffer, format='PNG')
         buffer.seek(0)
-        # Return file stream
+
         return StreamingResponse(buffer, media_type="image/png", headers={"Content-Length": str(buffer.getbuffer().nbytes)})
     else:
         return JSONResponse(content={'warn': 'No detected'}, status_code=204)
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="NudeNetCensor server")
+    parser.add_argument("--log-level", type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        default='INFO', help="Set the logging level")
+
+    args = parser.parse_args()
+
+    log_level = args.log_level.upper()
+
+    # Uvicorn logging configuration
+    LOGGING_CONFIG["loggers"]["uvicorn"]["level"] = log_level
+
     import uvicorn
 
-    uvicorn.run("server:NudeNetCensor", host="0.0.0.0", port=5000, reload=False)
+    uvicorn.run("server:NudeNetCensor", host="0.0.0.0", port=5000, reload=False, log_config=LOGGING_CONFIG, log_level=args.log_level.lower())
