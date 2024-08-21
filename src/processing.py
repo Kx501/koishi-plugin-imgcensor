@@ -1,3 +1,5 @@
+import logging
+
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
 
@@ -19,6 +21,8 @@ COLORS_BGR = [
 ]
 
 LABEL_COLOR_MAP = {label: color for label, color in zip(LABELS, COLORS_BGR)}
+
+log = logging.getLogger("uvicorn")
 
 
 def apply_feathering(alpha_channel, mask_shape, gradient_ratio):
@@ -51,6 +55,7 @@ def apply_feathering(alpha_channel, mask_shape, gradient_ratio):
 
 
 def draw_detections(img, detections):
+    log.debug('draw_detections.......')
     draw = ImageDraw.Draw(img)
     font = ImageFont.truetype("arial.ttf", 15) if ImageFont.truetype("arial.ttf", 15) else ImageFont.load_default()
 
@@ -79,6 +84,7 @@ def draw_detections(img, detections):
 
 
 def apply_color_block(image, box, color, mask_shape, mask_scale, gradient_ratio):
+    log.debug('apply_color_block......')
     x, y, w, h = [int(coord) for coord in [box[0] - box[2] * (mask_scale - 1) / 2,
                                            box[1] - box[3] * (mask_scale - 1) / 2,
                                            box[2] * mask_scale,
@@ -107,6 +113,7 @@ def apply_color_block(image, box, color, mask_shape, mask_scale, gradient_ratio)
 
 
 def apply_gaussian_blur(image, box, blur_strength, mask_shape, mask_scale, gradient_ratio):
+    log.debug('apply_gaussian_blur......')
     x, y, w, h = [int(coord) for coord in [box[0] - box[2] * (mask_scale - 1) / 2,
                                            box[1] - box[3] * (mask_scale - 1) / 2,
                                            box[2] * mask_scale,
@@ -130,6 +137,7 @@ def apply_gaussian_blur(image, box, blur_strength, mask_shape, mask_scale, gradi
 
 
 def apply_mosaic(image, box, blur_strength, mask_shape, mask_scale):
+    log.debug('apply_mosaic......')
     x, y, w, h = [int(coord) for coord in [box[0] - box[2] * (mask_scale - 1) / 2,
                                            box[1] - box[3] * (mask_scale - 1) / 2,
                                            box[2] * mask_scale,
@@ -158,6 +166,7 @@ def apply_mosaic(image, box, blur_strength, mask_shape, mask_scale):
 
 
 def apply_full_color_block(image, color):
+    log.debug('apply_full_color_block......')
     color_block = Image.new('RGB', image.size, tuple(int(c) for c in color))
     mask = Image.new('L', image.size, 255)
     image.paste(color_block, (0, 0), mask)
@@ -165,10 +174,13 @@ def apply_full_color_block(image, color):
 
 
 def apply_full_gaussian_blur(image, blur_strength):
+    log.debug('apply_full_gaussian_blur......')
     return image.filter(ImageFilter.GaussianBlur(blur_strength))
 
 
-def process_image(image, detections, config=None):
+def process_image(image, detections, logger, config=None):
+    global log
+    log = logger
     # Save original picture
     # image.save('original_image.png')
 
@@ -179,7 +191,7 @@ def process_image(image, detections, config=None):
         mask_shape = config.mask_shape
         mask_scale = config.mask_scale
         gradual_ratio = config.gradual_ratio
-        target_labels = config.labels
+
     else:
         image = draw_detections(image, detections)
         return image
@@ -188,26 +200,25 @@ def process_image(image, detections, config=None):
     for detection in detections:
         # print(detection)
 
-        if detection['class'] not in target_labels:
-            continue
+        if detection['class'] in config.labels and detection['score'] >= config.score:
 
-        # print(detection)
+            # print(detection)
 
-        filtered_detections.append(detection)
-        box = detection['box']
+            filtered_detections.append(detection)
+            box = detection['box']
 
-        if mask_type == 'color_block':
-            image = apply_color_block(image, box, mask_color, mask_shape, mask_scale, gradual_ratio)
-        elif mask_type == 'full_color_block':
-            image = apply_full_color_block(image, mask_color)
-        elif mask_type == 'gaussian_blur':
-            image = apply_gaussian_blur(image, box, blur_strength, mask_shape, mask_scale, gradual_ratio)
-        elif mask_type == 'full_gaussian_blur':
-            # 1 * 10
-            image = apply_full_gaussian_blur(image, blur_strength)
-        elif mask_type == 'mosaic':
-            # 1 * 10
-            image = apply_mosaic(image, box, blur_strength, mask_shape, mask_scale)
+            if mask_type == 'color_block':
+                image = apply_color_block(image, box, mask_color, mask_shape, mask_scale, gradual_ratio)
+            elif mask_type == 'full_color_block':
+                image = apply_full_color_block(image, mask_color)
+            elif mask_type == 'gaussian_blur':
+                image = apply_gaussian_blur(image, box, blur_strength, mask_shape, mask_scale, gradual_ratio)
+            elif mask_type == 'full_gaussian_blur':
+                # 1 * 10
+                image = apply_full_gaussian_blur(image, blur_strength)
+            elif mask_type == 'mosaic':
+                # 1 * 10
+                image = apply_mosaic(image, box, blur_strength, mask_shape, mask_scale)
 
     # Save the processed picture
     # image.save('detection_result.png')

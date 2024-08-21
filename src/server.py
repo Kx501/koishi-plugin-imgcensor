@@ -50,12 +50,12 @@ class ImageConfig(BaseModel):
         description="Mask shape, one of 'color_block', 'gaussian_blur', 'mosaic', 'full_color_block', 'full_gaussian_blur', 'None'",
         examples=["color_block"]
     )
-    mask_color: Optional[Tuple[(int, int, int)]] = Field(
+    mask_color: Tuple[(int, int, int)] = Field(
         (0, 0, 0),
         description="Color block color in BGR format",
         examples=[([0, 0, 0])]
     )
-    blur_strength: Optional[int] = Field(
+    blur_strength: int = Field(
         4,
         description="Blur strength, recommended range is 1 to 10",
         gt=0, le=10
@@ -70,14 +70,19 @@ class ImageConfig(BaseModel):
         description="Mask scale factor, a floating point number",
         gt=0.0
     )
-    gradual_ratio: Optional[Union[float, int]] = Field(
+    gradual_ratio: Union[float, int] = Field(
         0.2,
         description="Edge feathering ratio, a floating point number between 0 and 1",
         ge=0.0, le=1.0
     )
-    labels: Optional[List[str]] = Field(
+    labels: List[str] = Field(
         ["FEMALE_BREAST_EXPOSED", "ANUS_EXPOSED", "FEMALE_GENITALIA_EXPOSED", "MALE_GENITALIA_EXPOSED"],
         description=f"Labels that need to be processed, optional list:\n{LABELS}"
+    )
+    score: Union[float, int] = Field(
+        0.4,
+        description="Minimum score for detection, a floating point number between 0 and 1",
+        ge=0.0, le=1.0
     )
 
 
@@ -105,7 +110,7 @@ class CONTENT(BaseModel):
 
 
 @NudeNetCensor.post("/detect", response_model=CONTENT)
-async def detect(
+def detect(
         request: ImageRequest,
 ):
     image = request.image
@@ -131,7 +136,7 @@ async def detect(
 
         if detections:
             logger.debug("Starting image processing")
-            result_img, filtered_detections = process_image(img, detections, config)
+            result_img, filtered_detections = process_image(img, detections, logger, config)
             logger.info(f"Filtered detections: {filtered_detections}")
 
             buffer = io.BytesIO()
@@ -167,7 +172,7 @@ async def detect_file(
     detections = detector.detect(img_array)
 
     if detections:
-        result_img = process_image(img, detections)
+        result_img = process_image(img, detections, logger)
         buffer = io.BytesIO()
         result_img.save(buffer, format='PNG')
         buffer.seek(0)
@@ -184,12 +189,17 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=15000, help="Set the server port")
 
     args = parser.parse_args()
+    log_level = args.log_level
 
-    log_level = args.log_level.upper()
+    logger.setLevel(log_level)
+
+    current_level = logger.getEffectiveLevel()
+    print(f"Current logger level: {logging.getLevelName(current_level)}")
+
+    import uvicorn
 
     # Uvicorn logging configuration
     LOGGING_CONFIG["loggers"]["uvicorn"]["level"] = log_level
 
-    import uvicorn
-
-    uvicorn.run("server:NudeNetCensor", host="0.0.0.0", port=args.port, reload=False, log_config=LOGGING_CONFIG, log_level=args.log_level.lower())
+    uvicorn.run("server:NudeNetCensor", host="0.0.0.0", port=args.port, reload=False, log_config=LOGGING_CONFIG,
+                log_level=args.log_level.lower())
