@@ -7,8 +7,7 @@ from typing import List, Optional, Literal, Dict, Union, Tuple
 import numpy as np
 import requests
 from PIL import Image
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, UploadFile, File, Response
 from nudenet import NudeDetector
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
@@ -129,9 +128,9 @@ def detect(
             logger.debug("图片加载成功")
         except (IOError, ValueError, TypeError) as e:
             logger.error(f"图片加载错误: {e}")
-            raise HTTPException(status_code=400, detail="无效的图片格式")
+            return Response(content="无效的图片格式", status_code=400)
     else:
-        raise HTTPException(status_code=400, detail="未提供图片")
+        return Response(content="未提供图片", status_code=400)
 
     logger.debug("开始检测过程")
     try:
@@ -148,19 +147,15 @@ def detect(
                 encoded_img = save_image_to_base64(result_img)
                 
                 if mask_type == 'None':
-                    content = {'detections': filtered_detections}
+                    return {'detections': filtered_detections}
                 else:
-                    content = {'image': encoded_img, 'detections': filtered_detections}
+                    return {'image': encoded_img, 'detections': filtered_detections}
             else:
-                # 如果没有超过阈值的检测结果，返回原始图片
-                encoded_img = save_image_to_base64(img)
-                content = {'image': encoded_img, 'detections': []}
-            
-            return content
-        return JSONResponse(content={'warn': '未检测到内容'}, status_code=202)
+                return Response(status_code=204)
+        return Response(status_code=204)
     except Exception as e:
         logger.error(f"处理过程中出错: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="图片处理错误")
+        return Response(content="图片处理错误", status_code=500)
 
 
 @NudeNetCensor.post("/detect_file")
@@ -171,7 +166,7 @@ async def detect_file(
     try:
         img = Image.open(io.BytesIO(await file.read()))
     except (IOError, ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="无效的文件格式")
+        return Response(content="无效的文件格式", status_code=400)
 
     img_array = np.array(img)
     detections = detector.detect(img_array)
@@ -183,7 +178,7 @@ async def detect_file(
             media_type="image/png"
         )
     else:
-        return JSONResponse(content={'warn': '未检测到内容'}, status_code=202)
+        return Response(status_code=204)
 
 
 if __name__ == "__main__":
