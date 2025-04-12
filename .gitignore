@@ -9,3 +9,4 @@
 /src/*.zip
 /*.dist/
 /*.build/
+/nuitka-crash-report.xml
